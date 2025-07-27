@@ -10,7 +10,11 @@ from harl.utils.trpo_util import (
     conjugate_gradient,
     fisher_vector_product,
     update_model,
-    kl_divergence,
+    kl_divergence
+)
+from harl.utils.wasserstein_trpo_util import (
+    wasserstein_distance_1d,
+    calculate_adaptive_trust_region
 )
 from harl.algorithms.actors.on_policy_base import OnPolicyBase
 from harl.models.policy_models.stochastic_policy import StochasticPolicy
