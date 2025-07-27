@@ -113,6 +113,12 @@ algo:
   accept_ratio: 0.5
   # backtracking coefficient in line search
   backtrack_coeff: 0.8
+  # WIP - Use Adaptive K1
+  use_adaptive_kl: False
+  # WIP - Adaptive C
+  adaptive_C: 0.1
+  # WIP - Adaptive Epsilon
+  adaptive_epsilon: 1e-8
   # method of aggregating the probability of multi-dimensional actions, choose from prod, mean
   action_aggregation: prod
   # whether to share parameter among actors
