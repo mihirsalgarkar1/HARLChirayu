@@ -10,6 +10,9 @@ from harl.algorithms.critics.discrete_q_critic import DiscreteQCritic
 CRITIC_REGISTRY = {
     "happo": VCritic,
     "hatrpo": VCritic,
+    "adaptive_hatrpo": VCritic,
+    "adaptive_wasserstein": VCritic,
+    "nonadaptive_wasserstein": VCritic,
     "haa2c": VCritic,
     "mappo": VCritic,
     "haddpg": ContinuousQCritic,

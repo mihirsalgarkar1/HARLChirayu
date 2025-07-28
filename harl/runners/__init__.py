@@ -7,6 +7,9 @@ from harl.runners.off_policy_ma_runner import OffPolicyMARunner
 RUNNER_REGISTRY = {
     "happo": OnPolicyHARunner,
     "hatrpo": OnPolicyHARunner,
+    "adaptive_hatrpo": OnPolicyHARunner,
+    "adaptive_wasserstein": OnPolicyHARunner,
+    "nonadaptive_wasserstein": OnPolicyHARunner,
     "haa2c": OnPolicyHARunner,
     "haddpg": OffPolicyHARunner,
     "hatd3": OffPolicyHARunner,
