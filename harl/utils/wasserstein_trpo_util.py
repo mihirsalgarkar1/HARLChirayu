@@ -1,32 +1,58 @@
-"""TRPO and W-MATRPO utility functions."""
+"""
+W-MATRPO Utility Functions
+
+This file provides the core components for implementing the Wasserstein-enabled
+Multi-agent Trust Region Policy Optimization (W-MATRPO) algorithm.
+"""
+
+# ==============================================================================
+# How to Integrate This File into Your Training Loop
+# ==============================================================================
+#
+# This file contains UTILITY functions. Your main training script will import
+# and call these functions. The general workflow is as follows:
+#
+# 1. SETUP:
+#    - Initialize N actor networks, 1 centralized critic, and their optimizers.
+#    - For each agent `i`, initialize a dual variable `lambda_i = torch.tensor([1.0], requires_grad=True)`.
+#    - For each `lambda_i`, create a separate optimizer (e.g., Adam or SGD).
+#
+# 2. DATA COLLECTION:
+#    - In a loop, have agents interact with the environment to collect
+#      trajectories (obs, actions, rewards, etc.) into a buffer.
+#
+# 3. UPDATE PHASE (LOOPING SEQUENTIALLY THROUGH AGENTS):
+#    For each agent `i`:
+#      a. From the buffer, get the collected data.
+#      b. Calculate advantage estimates A(s, a) using the critic.
+#
+#      c. Compute the Wasserstein distance trust region constraint:
+#         `w_dist = wasserstein_divergence(...)`
+#
+#      d. Compute the actor and lambda losses using the dual formulation:
+#         `actor_loss, lambda_loss = calculate_w_matrpo_loss(advantage, w_dist, lambda_i, delta_i)`
+#
+#      e. Perform backpropagation and update the networks:
+#         - Update actor `i` using `actor_loss`.
+#         - Update dual variable `lambda_i` using `lambda_loss`.
+#         - Clamp `lambda_i` to be non-negative after the update.
+#
+#      f. Update the centralized critic by minimizing the TD-error.
+#
+# ==============================================================================
+
 import torch
 import ot
 
-
-def flat_grad(grads):
-    """Flatten the gradients."""
-    grad_flatten = []
-    for grad in grads:
-        if grad is None:
-            continue
-        grad_flatten.append(grad.view(-1))
-    grad_flatten = torch.cat(grad_flatten)
-    return grad_flatten
-
-
-def flat_hessian(hessians):
-    """Flatten the hessians."""
-    hessians_flatten = []
-    for hessian in hessians:
-        if hessian is None:
-            continue
-        hessians_flatten.append(hessian.contiguous().view(-1))
-    hessians_flatten = torch.cat(hessians_flatten).data
-    return hessians_flatten
-
+# ==============================================================================
+# General PyTorch Model Utilities
+# ==============================================================================
 
 def flat_params(model):
-    """Flatten the parameters."""
+    """
+    Flattens the parameters of a PyTorch model into a single 1D tensor.
+    Role: General utility.
+    """
     params = []
     for param in model.parameters():
         params.append(param.data.view(-1))
@@ -35,7 +61,10 @@ def flat_params(model):
 
 
 def update_model(model, new_params):
-    """Update the model parameters."""
+    """
+    Updates a model's parameters from a flattened 1D tensor.
+    Role: General utility.
+    """
     index = 0
     for params in model.parameters():
         params_length = len(params.view(-1))
@@ -44,57 +73,16 @@ def update_model(model, new_params):
         params.data.copy_(new_param)
         index += params_length
 
-
-def kl_approx(p, q):
-    """KL divergence between two distributions."""
-    r = torch.exp(q - p)
-    kl = r - 1 - q + p
-    return kl
-
-
-def _kl_normal_normal(p, q):
-    """KL divergence between two normal distributions."""
-    var_ratio = (p.scale.to(torch.float64) / q.scale.to(torch.float64)).pow(2)
-    t1 = (
-        (p.loc.to(torch.float64) - q.loc.to(torch.float64)) / q.scale.to(torch.float64)
-    ).pow(2)
-    return 0.5 * (var_ratio + t1 - 1 - var_ratio.log())
-
-
-def kl_divergence(
-    obs,
-    rnn_states,
-    action,
-    masks,
-    available_actions,
-    active_masks,
-    new_actor,
-    old_actor,
-):
-    """KL divergence between two distributions."""
-    _, _, new_dist = new_actor.evaluate_actions(
-        obs, rnn_states, action, masks, available_actions, active_masks
-    )
-    with torch.no_grad():
-        _, _, old_dist = old_actor.evaluate_actions(
-            obs, rnn_states, action, masks, available_actions, active_masks
-        )
-    if new_dist.__class__.__name__ == "FixedCategorical":  # discrete action
-        new_logits = new_dist.logits
-        old_logits = old_dist.logits
-        kl = kl_approx(old_logits, new_logits)
-    else:  # continuous action
-        kl = _kl_normal_normal(old_dist, new_dist)
-
-    if len(kl.shape) > 1:
-        kl = kl.sum(1, keepdim=True)
-    return kl
-
+# ==============================================================================
+# Wasserstein Distance Calculation
+# These functions compute the W-distance, which serves as the trust region.
+# ==============================================================================
 
 def _wasserstein_normal_normal(p, q):
     """
     Computes the squared Wasserstein-2 distance between two Normal distributions
-    with diagonal covariance matrices.
+    with diagonal covariance matrices (for continuous action spaces).
+    Role: A helper function called by `wasserstein_divergence`.
     """
     p_loc = p.loc.to(torch.float64)
     q_loc = q.loc.to(torch.float64)
@@ -108,7 +96,8 @@ def _wasserstein_normal_normal(p, q):
 def wasserstein_pot(p_logits, q_logits):
     """
     Computes the Wasserstein-1 distance for a batch of discrete distributions
-    using the POT library.
+    using the POT library (for discrete action spaces).
+    Role: A helper function called by `wasserstein_divergence`.
     """
     p_probs = torch.softmax(p_logits, dim=-1)
     q_probs = torch.softmax(q_logits, dim=-1)
@@ -134,7 +123,13 @@ def wasserstein_divergence(
     new_actor,
     old_actor,
 ):
-    """Wasserstein distance between two policy distributions."""
+    """
+    Calculates the Wasserstein distance between the old and new actor policies.
+    Role: This is called once per agent update (step 3c in the guide above)
+          to compute the value of the trust region constraint. The result is
+          fed into `calculate_w_matrpo_loss`.
+    """
+    # Get the new and old policy distributions from the actor networks
     _, _, new_dist = new_actor.evaluate_actions(
         obs, rnn_states, action, masks, available_actions, active_masks
     )
@@ -142,38 +137,52 @@ def wasserstein_divergence(
         _, _, old_dist = old_actor.evaluate_actions(
             obs, rnn_states, action, masks, available_actions, active_masks
         )
-    if new_dist.__class__.__name__ == "FixedCategorical":
+
+    # Dispatch to the correct helper based on the action space type
+    if new_dist.__class__.__name__ == "FixedCategorical": # Discrete actions
         w_dist = wasserstein_pot(old_dist.logits, new_dist.logits)
-    else:
+    else: # Continuous actions
         w_dist = _wasserstein_normal_normal(old_dist, new_dist)
+
+    # Reshape for consistency
     if len(w_dist.shape) == 1:
         w_dist = w_dist.unsqueeze(1)
     return w_dist
 
+# ==============================================================================
+# W-MATRPO Dual Formulation Loss Calculation
+# This is the core of the W-MATRPO algorithm implementation.
+# ==============================================================================
 
 def calculate_w_matrpo_loss(advantage, w_dist, lambda_val, delta):
     """
-    Calculates actor and lambda losses for W-MATRPO based on its dual formulation.
-    This corresponds to Equation (6) in the user's paper.
+    Calculates the actor and lambda losses based on the dual formulation.
+    Role: This function implements the core logic of your paper's Equation (6).
+          It's called once per agent update (step 3d in the guide above). It takes
+          the advantage, the computed Wasserstein distance, the dual variable (lambda),
+          and the trust region size (delta) as input.
 
     Args:
         advantage (torch.Tensor): The advantage estimate M_i(s, a).
-        w_dist (torch.Tensor): The computed Wasserstein distance.
-        lambda_val (torch.Tensor): The current dual variable lambda.
-        delta (float): The trust region radius delta.
+        w_dist (torch.Tensor): The computed Wasserstein distance from `wasserstein_divergence`.
+        lambda_val (torch.Tensor): The agent's current dual variable lambda.
+        delta (float): The agent's trust region radius delta.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
-            - The loss for updating the policy network (actor_loss).
-            - The loss for updating the dual variable (lambda_loss).
+            - actor_loss: The loss for updating the policy network.
+            - lambda_loss: The loss for updating the dual variable.
     """
-    # Actor loss: Maximize advantage, penalized by the constraint violation.
-    # Lambda is detached so its gradients don't affect the actor update.
+    # This is the loss for the policy (actor) network.
+    # It tries to maximize the advantage, while the second term acts as a
+    # penalty/incentive based on the constraint satisfaction.
+    # We detach `lambda_val` because the actor's gradient shouldn't flow into lambda.
     actor_loss = -advantage.mean() + lambda_val.detach() * (w_dist.mean() - delta)
 
-    # Lambda loss: Minimize this to perform gradient ascent on lambda.
-    # This increases lambda when the constraint is violated (w_dist > delta)
-    # and decreases it otherwise.
+    # This is the loss for the dual variable `lambda`.
+    # Minimizing this loss via gradient descent performs gradient ascent on lambda.
+    # This update rule pushes lambda higher if the constraint is violated (w_dist > delta)
+    # and lower if it's satisfied, effectively enforcing the trust region.
     lambda_loss = -(lambda_val * (w_dist.mean() - delta))
 
     return actor_loss, lambda_loss
