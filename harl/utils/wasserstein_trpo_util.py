@@ -1,5 +1,6 @@
-"""TRPO utility functions."""
+"""TRPO and W-MATRPO utility functions."""
 import torch
+import ot
 
 
 def flat_grad(grads):
@@ -52,9 +53,7 @@ def kl_approx(p, q):
 
 
 def _kl_normal_normal(p, q):
-    """KL divergence between two normal distributions.
-    adapted from https://pytorch.org/docs/stable/_modules/torch/distributions/kl.html#kl_divergence
-    """
+    """KL divergence between two normal distributions."""
     var_ratio = (p.scale.to(torch.float64) / q.scale.to(torch.float64)).pow(2)
     t1 = (
         (p.loc.to(torch.float64) - q.loc.to(torch.float64)) / q.scale.to(torch.float64)
@@ -92,144 +91,89 @@ def kl_divergence(
     return kl
 
 
-# pylint: disable-next=invalid-name
-def conjugate_gradient(
-    actor,
+def _wasserstein_normal_normal(p, q):
+    """
+    Computes the squared Wasserstein-2 distance between two Normal distributions
+    with diagonal covariance matrices.
+    """
+    p_loc = p.loc.to(torch.float64)
+    q_loc = q.loc.to(torch.float64)
+    p_scale = p.scale.to(torch.float64)
+    q_scale = q.scale.to(torch.float64)
+    mean_diff_sq = (p_loc - q_loc).pow(2).sum(-1)
+    scale_diff_sq = (p_scale - q_scale).pow(2).sum(-1)
+    return mean_diff_sq + scale_diff_sq
+
+
+def wasserstein_pot(p_logits, q_logits):
+    """
+    Computes the Wasserstein-1 distance for a batch of discrete distributions
+    using the POT library.
+    """
+    p_probs = torch.softmax(p_logits, dim=-1)
+    q_probs = torch.softmax(q_logits, dim=-1)
+    n_categories = p_logits.shape[-1]
+    cost_matrix = torch.abs(
+        torch.arange(n_categories, device=p_logits.device, dtype=torch.float32).unsqueeze(1) -
+        torch.arange(n_categories, device=p_logits.device, dtype=torch.float32).unsqueeze(0)
+    )
+    p_probs_np = p_probs.detach().cpu().numpy()
+    q_probs_np = q_probs.detach().cpu().numpy()
+    cost_matrix_np = cost_matrix.cpu().numpy()
+    w_distances = [ot.emd2(p_probs_np[i], q_probs_np[i], cost_matrix_np) for i in range(p_probs.shape[0])]
+    return torch.tensor(w_distances, device=p_logits.device, dtype=torch.float32)
+
+
+def wasserstein_divergence(
     obs,
     rnn_states,
     action,
     masks,
     available_actions,
     active_masks,
-    b,
-    nsteps,
-    device,
-    residual_tol=1e-10,
+    new_actor,
+    old_actor,
 ):
-    """Conjugate gradient algorithm.
-    # refer to https://github.com/openai/baselines/blob/master/baselines/common/cg.py
-    """
-    x = torch.zeros(b.size()).to(device=device)
-    r = b.clone()
-    p = b.clone()
-    rdotr = torch.dot(r, r)
-    for _ in range(nsteps):
-        _Avp = fisher_vector_product(
-            actor, obs, rnn_states, action, masks, available_actions, active_masks, p
-        )
-        alpha = rdotr / torch.dot(p, _Avp)
-        x += alpha * p
-        r -= alpha * _Avp
-        new_rdotr = torch.dot(r, r)
-        betta = new_rdotr / rdotr
-        p = r + betta * p
-        rdotr = new_rdotr
-        if rdotr < residual_tol:
-            break
-    return x
-
-
-def fisher_vector_product(
-    actor, obs, rnn_states, action, masks, available_actions, active_masks, p
-):
-    """Fisher vector product."""
-    with torch.backends.cudnn.flags(enabled=False):
-        p.detach()
-        kl = kl_divergence(
-            obs,
-            rnn_states,
-            action,
-            masks,
-            available_actions,
-            active_masks,
-            new_actor=actor,
-            old_actor=actor,
-        )
-        kl = kl.mean()
-        kl_grad = torch.autograd.grad(
-            kl, actor.parameters(), create_graph=True, allow_unused=True
-        )
-        kl_grad = flat_grad(kl_grad)  # check kl_grad == 0
-        kl_grad_p = (kl_grad * p).sum()
-        kl_hessian_p = torch.autograd.grad(
-            kl_grad_p, actor.parameters(), allow_unused=True
-        )
-        kl_hessian_p = flat_hessian(kl_hessian_p)
-        return kl_hessian_p + 0.1 * p
-
-# --- New methods required for W-MATRPO ---
-def wasserstein_distance_1d(
-        policy1_state,
-        policy2_state,
-        obs_batch,
-        rnn_states_batch,
-        masks_batch,
-        # Additional args needed to instantiate actor models
-        actor_args=None,
-        obs_space=None,
-        act_space=None,
-        device=torch.device("cpu")
-):
-    """
-    Calculates the 1-Wasserstein distance between two policies for 1D Gaussian distributions.
-    """
-    # --- Input Validation ---
-    # Check if the necessary arguments for creating actor models are provided.
-    if actor_args is None or obs_space is None or act_space is None:
-        raise ValueError("actor_args, obs_space, and act_space must be provided to instantiate actor models.")
-
-    # 1. Create two temporary StochasticPolicy models (Actors).
-    policy1 = Actor(actor_args, obs_space, act_space, device)
-    policy2 = Actor(actor_args, obs_space, act_space, device)
-
-    # 2. Load the state_dicts into the models.
-    policy1.load_state_dict(policy1_state)
-    policy2.load_state_dict(policy2_state)
-
-    # Set to evaluation mode
-    policy1.eval()
-    policy2.eval()
-
+    """Wasserstein distance between two policy distributions."""
+    _, _, new_dist = new_actor.evaluate_actions(
+        obs, rnn_states, action, masks, available_actions, active_masks
+    )
     with torch.no_grad():
-        # 3. Pass the data batch through both models to get their action distributions.
-        _, _, dist1 = policy1.evaluate_actions(obs_batch, rnn_states_batch, None, masks_batch, None, None)
-        _, _, dist2 = policy2.evaluate_actions(obs_batch, rnn_states_batch, None, masks_batch, None, None)
+        _, _, old_dist = old_actor.evaluate_actions(
+            obs, rnn_states, action, masks, available_actions, active_masks
+        )
+    if new_dist.__class__.__name__ == "FixedCategorical":
+        w_dist = wasserstein_pot(old_dist.logits, new_dist.logits)
+    else:
+        w_dist = _wasserstein_normal_normal(old_dist, new_dist)
+    if len(w_dist.shape) == 1:
+        w_dist = w_dist.unsqueeze(1)
+    return w_dist
 
-        # 4. Calculate and return the 1-Wasserstein distance between the distributions.
-        mu1, sigma1 = dist1.loc, dist1.scale
-        mu2, sigma2 = dist2.loc, dist2.scale
-        w1_distance = torch.abs(mu1 - mu2) + torch.abs(sigma1 - sigma2)
 
-        return w1_distance.mean()
-
-
-def calculate_adaptive_trust_region(
-    other_agents_policy_histories, c_const, eps, obs_batch, rnn_states_batch, masks_batch
-):
+def calculate_w_matrpo_loss(advantage, w_dist, lambda_val, delta):
     """
-    Calculates the adaptive trust region delta for the current agent based on the
-    policy changes of the other agents.
+    Calculates actor and lambda losses for W-MATRPO based on its dual formulation.
+    This corresponds to Equation (6) in the user's paper.
 
     Args:
-        other_agents_policy_histories: (list of deques) A list where each element
-                                       is a deque containing the last 2 policy
-                                       state_dicts for one of the other agents.
-        c_const: (float) The 'C' constant from the algorithm.
-        eps: (float) A small epsilon for numerical stability.
-        obs_batch: (torch.Tensor) Batch of observations.
-        rnn_states_batch: (torch.Tensor) Batch of recurrent states.
-        masks_batch: (torch.Tensor) Batch of masks.
+        advantage (torch.Tensor): The advantage estimate M_i(s, a).
+        w_dist (torch.Tensor): The computed Wasserstein distance.
+        lambda_val (torch.Tensor): The current dual variable lambda.
+        delta (float): The trust region radius delta.
 
     Returns:
-        (float): The calculated adaptive trust region delta.
+        Tuple[torch.Tensor, torch.Tensor]:
+            - The loss for updating the policy network (actor_loss).
+            - The loss for updating the dual variable (lambda_loss).
     """
-    # TODO:
-    # 1. Initialize a denominator sum to zero.
-    # 2. Iterate through each of the other agents' policy histories.
-    # 3. For each other agent, get their policy at step k-1 and k-2.
-    # 4. Calculate the W1 distance between these two historical policies using
-    #    the wasserstein_distance_1d function.
-    # 5. Add this distance to the denominator sum.
-    # 6. Calculate delta = c_const / (denominator_sum + eps).
-    # 7. Return delta.
-    pass
+    # Actor loss: Maximize advantage, penalized by the constraint violation.
+    # Lambda is detached so its gradients don't affect the actor update.
+    actor_loss = -advantage.mean() + lambda_val.detach() * (w_dist.mean() - delta)
+
+    # Lambda loss: Minimize this to perform gradient ascent on lambda.
+    # This increases lambda when the constraint is violated (w_dist > delta)
+    # and decreases it otherwise.
+    lambda_loss = -(lambda_val * (w_dist.mean() - delta))
+
+    return actor_loss, lambda_loss
