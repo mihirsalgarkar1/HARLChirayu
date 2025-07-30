@@ -4,43 +4,6 @@ W-MATRPO Utility Functions
 This file provides the core components for implementing the Wasserstein-enabled
 Multi-agent Trust Region Policy Optimization (W-MATRPO) algorithm.
 """
-
-# ==============================================================================
-# How to Integrate This File into Your Training Loop
-# ==============================================================================
-#
-# This file contains UTILITY functions. Your main training script will import
-# and call these functions. The general workflow is as follows:
-#
-# 1. SETUP:
-#    - Initialize N actor networks, 1 centralized critic, and their optimizers.
-#    - For each agent `i`, initialize a dual variable `lambda_i = torch.tensor([1.0], requires_grad=True)`.
-#    - For each `lambda_i`, create a separate optimizer (e.g., Adam or SGD).
-#
-# 2. DATA COLLECTION:
-#    - In a loop, have agents interact with the environment to collect
-#      trajectories (obs, actions, rewards, etc.) into a buffer.
-#
-# 3. UPDATE PHASE (LOOPING SEQUENTIALLY THROUGH AGENTS):
-#    For each agent `i`:
-#      a. From the buffer, get the collected data.
-#      b. Calculate advantage estimates A(s, a) using the critic.
-#
-#      c. Compute the Wasserstein distance trust region constraint:
-#         `w_dist = wasserstein_divergence(...)`
-#
-#      d. Compute the actor and lambda losses using the dual formulation:
-#         `actor_loss, lambda_loss = calculate_w_matrpo_loss(advantage, w_dist, lambda_i, delta_i)`
-#
-#      e. Perform backpropagation and update the networks:
-#         - Update actor `i` using `actor_loss`.
-#         - Update dual variable `lambda_i` using `lambda_loss`.
-#         - Clamp `lambda_i` to be non-negative after the update.
-#
-#      f. Update the centralized critic by minimizing the TD-error.
-#
-# ==============================================================================
-
 import torch
 import ot
 
