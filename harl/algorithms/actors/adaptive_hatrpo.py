@@ -36,7 +36,7 @@ class Adaptive_HATRPO(OnPolicyBase):
         assert (
             act_space.__class__.__name__ != "MultiDiscrete"
         ), "only continuous and discrete action space is supported by Adaptive HATRPO."
-        super(Adaptive_HATRPO, self).__init__(args, obs_space, act_space, device)   """ WIP: Changed Name """
+        super(Adaptive_HATRPO, self).__init__(args, obs_space, act_space, device)   #namechange
 
         # Standard TRPO hyperparameters
         self.kl_threshold = args["kl_threshold"]
@@ -221,7 +221,8 @@ class Adaptive_HATRPO(OnPolicyBase):
             ):
                 flag = True
                 break
-            expected_improve *= self.backtrack_coeff """ WIP: Is this line really to be removed? """
+            expected_improve *= self.backtrack_coeff 
+            #should above line be removed?
             fraction *= self.backtrack_coeff
 
         if not flag:
