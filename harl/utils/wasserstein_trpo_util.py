@@ -7,9 +7,6 @@ Multi-agent Trust Region Policy Optimization (W-MATRPO) algorithm.
 import torch
 import ot
 
-# ==============================================================================
-# General PyTorch Model Utilities
-# ==============================================================================
 
 def flat_params(model):
     """
@@ -114,7 +111,6 @@ def wasserstein_divergence(
 
 # ==============================================================================
 # W-MATRPO Dual Formulation Loss Calculation
-# This is the core of the W-MATRPO algorithm implementation.
 # ==============================================================================
 
 def calculate_w_matrpo_loss(advantage, w_dist, lambda_val, delta):
@@ -140,12 +136,14 @@ def calculate_w_matrpo_loss(advantage, w_dist, lambda_val, delta):
     # It tries to maximize the advantage, while the second term acts as a
     # penalty/incentive based on the constraint satisfaction.
     # We detach `lambda_val` because the actor's gradient shouldn't flow into lambda.
+    
     actor_loss = -advantage.mean() + lambda_val.detach() * (w_dist.mean() - delta)
 
     # This is the loss for the dual variable `lambda`.
     # Minimizing this loss via gradient descent performs gradient ascent on lambda.
     # This update rule pushes lambda higher if the constraint is violated (w_dist > delta)
     # and lower if it's satisfied, effectively enforcing the trust region.
+    
     lambda_loss = -(lambda_val * (w_dist.mean() - delta))
 
     return actor_loss, lambda_loss
