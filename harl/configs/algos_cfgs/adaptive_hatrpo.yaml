@@ -114,7 +114,7 @@ algo:
   # backtracking coefficient in line search
   backtrack_coeff: 0.8
   # WIP - Use Adaptive K1
-  use_adaptive_kl: False
+  use_adaptive_kl: True 
   # WIP - Adaptive C
   adaptive_C: 0.1
   # WIP - Adaptive Epsilon
