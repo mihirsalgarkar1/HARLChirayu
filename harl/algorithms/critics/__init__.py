@@ -13,6 +13,7 @@ CRITIC_REGISTRY = {
     "adaptive_hatrpo": VCritic,
     "adaptive_wasserstein": VCritic,
     "nonadaptive_wasserstein": VCritic,
+    "WMATRPO_NONADAPTIVE": VCritic,
     "haa2c": VCritic,
     "mappo": VCritic,
     "haddpg": ContinuousQCritic,

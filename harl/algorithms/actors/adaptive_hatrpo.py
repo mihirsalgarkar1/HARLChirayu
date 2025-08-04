@@ -12,10 +12,8 @@ from harl.utils.trpo_util import (
     update_model,
     kl_divergence
 )
-from harl.utils.wasserstein_trpo_util import (
-    wasserstein_distance_1d,
-    calculate_adaptive_trust_region
-)
+
+
 from harl.algorithms.actors.on_policy_base import OnPolicyBase
 from harl.models.policy_models.stochastic_policy import StochasticPolicy
 
@@ -36,7 +34,11 @@ class Adaptive_HATRPO(OnPolicyBase):
         assert (
             act_space.__class__.__name__ != "MultiDiscrete"
         ), "only continuous and discrete action space is supported by Adaptive HATRPO."
+<<<<<<< HEAD
         super(Adaptive_HATRPO, self).__init__(args, obs_space, act_space, device)   #namechange
+=======
+        super(Adaptive_HATRPO, self).__init__(args, obs_space, act_space, device)  
+>>>>>>> b1e3fc3 (potential updates to trial setup)
 
         # Standard TRPO hyperparameters
         self.kl_threshold = args["kl_threshold"]
@@ -221,8 +223,12 @@ class Adaptive_HATRPO(OnPolicyBase):
             ):
                 flag = True
                 break
+<<<<<<< HEAD
             expected_improve *= self.backtrack_coeff 
             #should above line be removed?
+=======
+            expected_improve *= self.backtrack_coeff
+>>>>>>> b1e3fc3 (potential updates to trial setup)
             fraction *= self.backtrack_coeff
 
         if not flag:

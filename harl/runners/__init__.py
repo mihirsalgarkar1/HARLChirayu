@@ -10,6 +10,7 @@ RUNNER_REGISTRY = {
     "adaptive_hatrpo": OnPolicyHARunner,
     "adaptive_wasserstein": OnPolicyHARunner,
     "nonadaptive_wasserstein": OnPolicyHARunner,
+    "WMATRPO_NONADAPTIVE": OnPolicyHARunner,
     "haa2c": OnPolicyHARunner,
     "haddpg": OffPolicyHARunner,
     "hatd3": OffPolicyHARunner,

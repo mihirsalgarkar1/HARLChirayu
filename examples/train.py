@@ -24,9 +24,16 @@ def main():
             "maddpg",
             "matd3",
             "mappo",
+<<<<<<< HEAD
             "adaptivehatrpo",
         ],
         help="Algorithm name. Choose from: happo, hatrpo, haa2c, haddpg, hatd3, hasac, had3qn, maddpg, matd3, mappo, adaptivehatrpo.",
+=======
+            "adaptive_hatrpo",
+	    "WMATRPO_NONADAPTIVE"
+        ],
+        help="Algorithm name. Choose from: happo, hatrpo, haa2c, haddpg, hatd3, hasac, had3qn, maddpg, matd3, mappo, adaptive_hatrpo, nonadaptive_wasserstein",
+>>>>>>> b1e3fc3 (potential updates to trial setup)
     )
     parser.add_argument(
         "--env",

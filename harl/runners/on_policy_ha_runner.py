@@ -85,11 +85,11 @@ class OnPolicyHARunner(OnPolicyBaseRunner):
             # update actor
             if self.state_type == "EP":
                 actor_train_info = self.actor[agent_id].train(
-                    self.actor_buffer[agent_id], advantages.copy(), "EP"
+                    self.actor_buffer[agent_id], advantages.copy(), "EP", self.critic
                 )
             elif self.state_type == "FP":
                 actor_train_info = self.actor[agent_id].train(
-                    self.actor_buffer[agent_id], advantages[:, :, agent_id].copy(), "FP"
+                    self.actor_buffer[agent_id], advantages[:, :, agent_id].copy(), "FP", self.critic
                 )
 
             # compute action log probs for updated agent
